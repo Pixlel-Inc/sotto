@@ -5,21 +5,59 @@ import SwiftUI
 @main
 struct SottoMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @StateObject private var model = AppModel()
 
     var body: some Scene {
         MenuBarExtra {
-            PanelView(model: model)
+            PanelView(model: delegate.model)
         } label: {
-            Image(systemName: model.isRecording ? "record.circle.fill" : "waveform")
+            MenuBarLabel(model: delegate.model)
         }
         .menuBarExtraStyle(.window)
     }
 }
 
+struct MenuBarLabel: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        Image(systemName: model.isRecording ? "record.circle.fill" : "waveform")
+    }
+}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    let model = AppModel()
+    private var window: NSWindow?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    /// Opening Sotto again (Spotlight, Finder, Launchpad) shows the panel in a window.
+    /// On a crowded menu bar macOS hides icons behind the notch, and this is the way back in.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showWindow()
+        return false
+    }
+
+    func showWindow() {
+        if window == nil {
+            // The window must not follow the view's size on its own: SwiftUI resizing the
+            // window mid layout pass makes AppKit throw. Size it once, let the user resize.
+            let host = NSHostingController(rootView: PanelView(model: model))
+            host.sizingOptions = []
+            let size = host.view.fittingSize
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: max(size.height, 420)),
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                             backing: .buffered, defer: false)
+            w.contentViewController = host
+            w.setContentSize(NSSize(width: 340, height: max(size.height, 420)))
+            w.title = "Sotto"
+            w.isReleasedWhenClosed = false
+            w.center()
+            window = w
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
     }
 }
 
