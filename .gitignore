@@ -1,0 +1,8 @@
+.DS_Store
+/.build
+/build
+/.swiftpm
+/Package.resolved
+*.xcodeproj
+xcuserdata/
+packaging/Sotto.iconset

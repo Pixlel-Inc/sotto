@@ -1,0 +1,41 @@
+{
+  "manifest_version": "0.3",
+  "name": "sotto",
+  "display_name": "Sotto",
+  "version": "__VERSION__",
+  "description": "Search and read your recorded conversations. Recorded, transcribed and stored on your Mac.",
+  "long_description": "Sotto is a free, open-source notetaker for macOS. It records calls (your microphone and the computer's audio as separate tracks) or in-person meetings, then transcribes them on your Mac with speaker labels. This extension lets Claude list, search and read those transcripts, name speakers, and start or stop a recording in the Sotto app. Transcripts never leave your Mac except for the parts Claude reads to answer you.",
+  "author": {
+    "name": "Pixlel",
+    "url": "https://pixlel.com"
+  },
+  "homepage": "https://github.com/Pixlel-Inc/sotto",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Pixlel-Inc/sotto"
+  },
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/sotto",
+    "mcp_config": {
+      "command": "${__dirname}/server/sotto",
+      "args": ["mcp"]
+    }
+  },
+  "tools": [
+    {"name": "list_recordings", "description": "List recordings by date, newest first."},
+    {"name": "get_transcript", "description": "Read one transcript with timestamps and speakers."},
+    {"name": "search_transcripts", "description": "Full-text search across every transcript."},
+    {"name": "rename_speaker", "description": "Name a speaker; Sotto remembers the voice."},
+    {"name": "set_title", "description": "Rename a recording."},
+    {"name": "recording_status", "description": "Whether Sotto is recording right now."},
+    {"name": "start_recording", "description": "Start a recording in the Sotto app."},
+    {"name": "stop_recording", "description": "Stop the current recording."}
+  ],
+  "keywords": ["transcription", "meetings", "notes", "local", "privacy", "diarization"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["darwin"]
+  }
+}
