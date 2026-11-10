@@ -30,7 +30,11 @@ struct SottoMenuBarApp: App {
 struct MenuBarLabel: View {
     @ObservedObject var model: AppModel
     var body: some View {
-        Image(systemName: model.isRecording ? "record.circle.fill" : "waveform")
+        if model.isRecording {
+            Image(nsImage: RecordingDot.image(for: model.pulse))
+        } else {
+            Image(systemName: "waveform")
+        }
     }
 }
 

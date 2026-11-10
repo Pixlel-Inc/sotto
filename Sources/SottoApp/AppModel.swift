@@ -22,6 +22,7 @@ final class AppModel: ObservableObject {
     @Published var recent: [RecordingMeta] = []
     @Published var micLevel: Float = 0
     @Published var systemLevel: Float?
+    @Published var pulse: Float = 0
     @Published var warning: String?
     @Published var busy = false
     @Published var ownerName: String
@@ -171,6 +172,8 @@ final class AppModel: ObservableObject {
         let (m, sys) = recorder.levels()
         micLevel = m
         systemLevel = sys
+        // Rise at once with the loudest source, fall gently, so the dot breathes instead of flickers.
+        pulse = max(m, sys ?? 0, pulse * 0.75)
     }
 
     func stopRecording() async -> String? {
@@ -183,6 +186,7 @@ final class AppModel: ObservableObject {
         mirror.id = nil
         micLevel = 0
         systemLevel = nil
+        pulse = 0
         if let e = result.errors.first { warning = e }
         _ = try? library.updateMeta(id) {
             $0.tracks = result.tracks
