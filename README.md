@@ -27,15 +27,16 @@ scripts/build-app.sh --install
 open ~/Applications/Sotto.app
 ```
 
-The waveform icon appears in your menu bar, near the clock. Opening Sotto again from Spotlight or Finder shows the same controls in a window. The first recording asks for microphone access, and the first call recording asks for permission to record computer audio ("System Audio Recording Only"). The first transcription downloads the speech and speaker models (about 500 MB, once).
+The waveform icon appears in your menu bar, near the clock. Opening Sotto again from Spotlight or Finder shows the same controls in a window. The first recording asks for microphone access and for permission to record computer audio ("System Audio Recording Only"). The first transcription downloads the speech and speaker models (about 500 MB, once).
 
-To start Sotto when you log in, turn on **Open at login** in its menu.
+To start Sotto when you log in, turn on **Open at Login** under the gear in its menu.
 
 ## Using it
 
-**Record a call.** Choose **Call: mic + computer** and click **Start Recording**. Your microphone is "you" and the computer audio is everyone else. Headphones give the cleanest result. Without them, Sotto removes the other side's voice that your microphone picks up from the speakers.
+**Record anything.** Click **Start Recording**. Sotto always records your microphone and the computer's audio, then works out which kind of conversation it was.
 
-**Record a meeting in the room.** Choose **In person: mic**. Put the Mac where it can hear everyone. The transcript splits the room by voice.
+- **If speech came through the computer, it was a call.** Your microphone is "you" and the computer audio is everyone else. Headphones give the cleanest result. Without them, Sotto removes the other side's voice that your microphone picks up from the speakers.
+- **If no speech came through the computer, it was in person.** The microphone is split by voice. Put the Mac where it can hear everyone.
 
 **Import a recording.** Drop any audio file (m4a, mp3, wav, aac, caf, flac, aiff, mp4, mov) into `~/Documents/Sotto/Inbox`. Sotto picks it up within a few seconds and transcribes it. Voice memos, phone recordings and files from a hardware recorder all work.
 
@@ -47,13 +48,13 @@ sotto rename 2026-11-06_1430 "Speaker 2" Dana
 
 Sotto remembers Dana's voice and labels her automatically in later recordings.
 
-**Set your name.** Click "Your name in transcripts" in the menu so your lines say your name instead of "Me".
+**Set your name.** Choose **Your Name** under the gear in the menu so your lines say your name instead of "Me".
 
 ### Telling people you are recording
 
 Recording laws vary. Many places, including Pennsylvania, California, Florida, Illinois, Maryland, Massachusetts, Michigan, Montana, New Hampshire and Washington in the US, require **everyone** in a conversation to agree before it is recorded. Sotto has no bot that announces itself, so it is on you to tell people.
 
-By default, Sotto reminds you each time you start recording and offers to copy a short notice you can paste into the meeting chat. You can edit the notice (`consentNotice` in the settings file) or turn off the reminder in the menu. This is not legal advice.
+By default, Sotto reminds you each time you start recording and offers to copy a short notice you can paste into the meeting chat. You can edit the notice (`consentNotice` in the settings file) or turn off the reminder under the gear in the menu. This is not legal advice.
 
 ## Connect an AI app
 
@@ -61,9 +62,9 @@ Sotto's connector is a local [MCP](https://modelcontextprotocol.io) server. It r
 
 Tools it offers: `list_recordings`, `get_transcript`, `search_transcripts`, `rename_speaker`, `set_title`, `recording_status`, `start_recording`, `stop_recording`.
 
-**Claude Desktop.** In the Sotto menu choose **Connect an AI app > Install in Claude Desktop**, then click Install. (The file is `build/Sotto.mcpb` if you would rather double-click it.)
+**Claude Desktop.** In the Sotto menu choose **gear > Connect an AI app > Install in Claude Desktop**, then click Install. (The file is `build/Sotto.mcpb` if you would rather double-click it.)
 
-**Claude Code.** Choose **Connect an AI app > Copy Claude Code command** and paste it into a terminal. It looks like this:
+**Claude Code.** Choose **gear > Connect an AI app > Copy Claude Code command** and paste it into a terminal. It looks like this:
 
 ```bash
 claude mcp add sotto --scope user -- "$HOME/Applications/Sotto.app/Contents/Resources/sotto" mcp
@@ -179,6 +180,7 @@ Speech and speaker models run through [FluidAudio](https://github.com/FluidInfer
 
 - Apple Silicon only, because the models are built for the Neural Engine.
 - Transcription runs after a recording ends, not live.
+- If the computer is playing speech (a video, say) during an in-person conversation, Sotto reads it as a call and labels everyone in the room as you.
 - If your output device changes during a call (AirPods connecting, say), computer audio may stop being captured for the rest of that recording.
 - Speaker splitting is good, not perfect. Similar voices can merge and one voice can occasionally split in two. `--speakers N` and renaming help.
 - No summaries yet. Ask your AI app; that is what the connector is for.

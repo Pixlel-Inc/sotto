@@ -7,7 +7,7 @@ sotto \(Sotto.version): private meeting notes, transcribed on this Mac.
 Usage:
   sotto record [--room] [--title "..."]   Record until Ctrl-C, then transcribe.
                                            Default records your mic and computer audio
-                                           as separate tracks; --room records the mic only.
+                                           and works out if it was a call or in person; --room records the mic only.
   sotto transcribe <file> [--title "..."]  Import an audio file and transcribe it.
   sotto retranscribe <id>                  Run transcription again on a recording.
                                            record, transcribe and retranscribe take

@@ -74,8 +74,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct PanelView: View {
     @ObservedObject var model: AppModel
-    @State private var editingName = false
-    @State private var nameDraft = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -91,8 +89,6 @@ struct PanelView: View {
             }
             Divider()
             recentSection
-            Divider()
-            footer
         }
         .padding(14)
         .frame(width: 340)
@@ -107,19 +103,45 @@ struct PanelView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+            settingsMenu
         }
+    }
+
+    /// Everything that is not recording lives behind the gear.
+    var settingsMenu: some View {
+        Menu {
+            Button("Open Recordings Folder") { model.openFolder() }
+            Button("Open Inbox Folder") { model.openInbox() }
+            Button("Copy Recording Notice") { model.copyNotice() }
+            Divider()
+            Menu("Connect an AI app") {
+                Button("Install in Claude Desktop") { model.installClaudeExtension() }
+                Button("Copy Claude Code command") { model.copyClaudeCodeCommand() }
+                Button("Copy local API token") { model.copyToken() }
+            }
+            Button("Your Name: \(model.ownerName.isEmpty ? "Me" : model.ownerName)...") { model.askOwnerName() }
+            Toggle("Remind Me to Tell People", isOn: Binding(
+                get: { model.consentReminder }, set: { model.setConsentReminder($0) }))
+            Toggle("Open at Login", isOn: Binding(
+                get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
+            Divider()
+            Button("Quit Sotto") {
+                Task {
+                    _ = await model.stopRecording()
+                    NSApp.terminate(nil)
+                }
+            }
+        } label: {
+            Image(systemName: "gearshape")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Settings")
     }
 
     var recordSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !model.isRecording {
-                Picker("", selection: $model.mode) {
-                    Text("Call: mic + computer").tag(Recorder.Mode.call)
-                    Text("In person: mic").tag(Recorder.Mode.room)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
             Button(action: model.toggle) {
                 HStack {
                     Image(systemName: model.isRecording ? "stop.fill" : "record.circle")
@@ -171,50 +193,6 @@ struct PanelView: View {
                 }
             }
         }
-    }
-
-    var footer: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Button("Recordings") { model.openFolder() }
-                Button("Inbox") { model.openInbox() }
-                Button("Copy Notice") { model.copyNotice() }
-                    .help("Copy a short recording notice to paste into a meeting chat")
-            }
-            Menu("Connect an AI app") {
-                Button("Install in Claude Desktop") { model.installClaudeExtension() }
-                Button("Copy Claude Code command") { model.copyClaudeCodeCommand() }
-                Button("Copy local API token") { model.copyToken() }
-            }
-            .fixedSize()
-            Toggle("Remind me to tell people before recording", isOn: Binding(
-                get: { model.consentReminder }, set: { model.setConsentReminder($0) }))
-            Toggle("Open at login", isOn: Binding(
-                get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
-            HStack {
-                Text("Your name in transcripts:").font(.caption)
-                if editingName {
-                    TextField("Name", text: $nameDraft, onCommit: {
-                        model.setOwnerName(nameDraft); editingName = false
-                    })
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 120)
-                } else {
-                    Button(model.ownerName.isEmpty ? "Me" : model.ownerName) {
-                        nameDraft = model.ownerName; editingName = true
-                    }
-                    .buttonStyle(.link)
-                }
-                Spacer()
-                Button("Quit") {
-                    Task {
-                        _ = await model.stopRecording()
-                        NSApp.terminate(nil)
-                    }
-                }
-            }
-        }
-        .controlSize(.small)
     }
 }
 

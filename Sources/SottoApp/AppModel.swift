@@ -20,7 +20,6 @@ final class AppModel: ObservableObject {
     @Published var elapsed: TimeInterval = 0
     @Published var status = "Ready"
     @Published var recent: [RecordingMeta] = []
-    @Published var mode: Recorder.Mode = .call
     @Published var micLevel: Float = 0
     @Published var systemLevel: Float?
     @Published var warning: String?
@@ -109,6 +108,21 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func askOwnerName() {
+        let alert = NSAlert()
+        alert.messageText = "Your name in transcripts"
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.stringValue = ownerName
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            setOwnerName(field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
     // MARK: Recording
 
     func toggle() {
@@ -116,7 +130,7 @@ final class AppModel: ObservableObject {
             Task { _ = await stopRecording() }
         } else {
             Task {
-                do { _ = try await startRecording(mode: mode, title: nil, askConsent: true) }
+                do { _ = try await startRecording(mode: .call, title: nil, askConsent: true) }
                 catch SottoError.invalid("cancelled") {}
                 catch { warning = error.localizedDescription }
             }

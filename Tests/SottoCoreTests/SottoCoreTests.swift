@@ -115,6 +115,13 @@ func w(_ text: String, _ start: Double, _ end: Double, _ speaker: String) -> Wor
         #expect(HTTPServer.parse(Data(raw.utf8)) == nil)
     }
 
+    @Test func quietComputerMeansInPerson() {
+        #expect(Transcriber.isInPerson(hasMic: true, computerWords: 0))
+        #expect(Transcriber.isInPerson(hasMic: true, computerWords: 2))
+        #expect(!Transcriber.isInPerson(hasMic: true, computerWords: 40))
+        #expect(!Transcriber.isInPerson(hasMic: false, computerWords: 0))
+    }
+
     @Test func tokenComparison() {
         #expect(HTTPServer.constantTimeEqual("Bearer abc", "Bearer abc"))
         #expect(!HTTPServer.constantTimeEqual("Bearer abd", "Bearer abc"))

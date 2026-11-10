@@ -228,7 +228,8 @@ final class SystemCapture {
 /// Records a call (your mic plus computer audio, as two tracks) or a room (mic only).
 public final class Recorder: @unchecked Sendable {
     public enum Mode: String, Sendable {
-        /// Mic as "me" plus computer audio as "others". For Zoom, Meet, phone-on-speaker.
+        /// Mic plus computer audio, the default. Transcription works out whether it was a
+        /// call (mic is "me", computer is "others") or in person (no speech from the computer).
         case call
         /// Mic only, everyone split by voice. For in-person meetings.
         case room

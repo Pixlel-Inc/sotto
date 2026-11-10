@@ -82,7 +82,7 @@ public final class MCPServer {
         ],
         [
             "name": "start_recording",
-            "description": "Start recording in the Sotto app (it must be running). Only call this when the user asks, and remind them that everyone in the conversation should know it is being recorded. mode call records the microphone and computer audio separately; mode room records the microphone only.",
+            "description": "Start recording in the Sotto app (it must be running). Only call this when the user asks, and remind them that everyone in the conversation should know it is being recorded. Leave mode out: Sotto records the microphone and computer audio and works out afterward whether it was a call or an in-person conversation. Mode room records the microphone only.",
             "inputSchema": [
                 "type": "object",
                 "properties": [

@@ -62,6 +62,8 @@ public actor Transcriber {
         var embeddings: [String: [Float]] = [:]
         var nextSpeaker = 1
 
+        // Hear every track first: what came through the computer decides how the mic is read.
+        var heard: [(track: Track, url: URL, words: [WordTiming])] = []
         for track in meta.tracks {
             let url = folder.appendingPathComponent(track.file)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
@@ -72,14 +74,26 @@ public actor Transcriber {
                 continue
             }
             log?("Transcribing \(track.file) (\(Render.duration(Double(samples.count) / 16000)))...")
-            let words = try await recognize(samples)
+            heard.append((track, url, try await recognize(samples)))
+        }
+
+        let computerWords = heard.filter { $0.track.role == .others }.reduce(0) { $0 + $1.words.count }
+        let inPerson = Transcriber.isInPerson(hasMic: heard.contains { $0.track.role == .me }, computerWords: computerWords)
+        if inPerson {
+            log?("No speech from the computer, reading this as an in-person conversation")
+            heard.removeAll { $0.track.role == .others }
+        }
+
+        for (track, url, words) in heard {
+            let role: TrackRole = inPerson && track.role == .me ? .room : track.role
             var labelled: [Word]
-            if track.role == .me {
+            if role == .me {
                 labelled = words.map { Word(text: $0.word, start: $0.startTime, end: $0.endTime, speaker: "me") }
             } else {
                 log?("Finding speakers in \(track.file)...")
                 var hint = meta.expectedSpeakers
-                if let n = hint, track.role == .others { hint = max(1, n - 1) }
+                if let n = hint, role == .others { hint = max(1, n - 1) }
+                let samples = try AudioConverter().resampleAudioFile(url)
                 let result = try await diarize(samples, speakers: hint)
                 // Number speakers across the whole recording in order of first appearance.
                 var map: [String: String] = [:]
@@ -94,7 +108,7 @@ public actor Transcriber {
                 labelled = Transcriber.assign(words: words, segments: result.segments, map: map)
             }
             allWords.append(labelled.map { var w = $0; w.start += track.offset; w.end += track.offset; return w })
-            roles.append(track.role)
+            roles.append(role)
         }
 
         // Without headphones the mic also hears the other side through the speakers.
@@ -137,6 +151,13 @@ public actor Transcriber {
     }
 
     // MARK: Pure helpers (tested)
+
+    /// Every recording captures the mic and the computer. If the computer carried no real
+    /// speech (a notification sound can produce a stray word or two), nobody was on a call,
+    /// so the mic is the whole room and gets split by voice.
+    static func isInPerson(hasMic: Bool, computerWords: Int, minimumCallWords: Int = 5) -> Bool {
+        hasMic && computerWords < minimumCallWords
+    }
 
     static func isSilent(_ samples: [Float]) -> Bool {
         guard !samples.isEmpty else { return true }
