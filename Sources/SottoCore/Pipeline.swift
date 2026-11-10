@@ -51,6 +51,22 @@ public actor Pipeline {
         return meta
     }
 
+    /// Copies files into the library and queues them. Returns what went in and what could not.
+    public func addFiles(_ urls: [URL]) -> (added: [RecordingMeta], problems: [String]) {
+        var added: [RecordingMeta] = []
+        var problems: [String] = []
+        for url in urls {
+            do {
+                let meta = try importFile(url)
+                added.append(meta)
+                enqueue(meta.id)
+            } catch {
+                problems.append(error.localizedDescription)
+            }
+        }
+        return (added, problems)
+    }
+
     static func duration(of url: URL) -> Double {
         guard let f = try? AVAudioFile(forReading: url) else { return 0 }
         return Double(f.length) / f.fileFormat.sampleRate

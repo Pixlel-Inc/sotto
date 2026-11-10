@@ -1,3 +1,4 @@
+import UniformTypeIdentifiers
 import AVFoundation
 import AppKit
 import ServiceManagement
@@ -29,6 +30,7 @@ final class AppModel: ObservableObject {
     @Published var consentReminder: Bool
     @Published var openAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @Published var offerToRecordMeetings: Bool = true
+    @Published var uploadMessage: String?
 
     let library: Library
     let index: SearchIndex
@@ -48,6 +50,7 @@ final class AppModel: ObservableObject {
     private var meetingTimer: Timer?
     private var meetingWatch = MeetingWatch()
     private let meetingPrompt = MeetingPrompt()
+    private let uploadWindow = UploadWindow()
 
     init() {
         do {
@@ -145,6 +148,41 @@ final class AppModel: ObservableObject {
             // The offer itself carries the consent reminder, so one click starts recording.
             do { _ = try await startRecording(mode: .call, title: nil, askConsent: false) }
             catch { warning = error.localizedDescription }
+        }
+    }
+
+    // MARK: Upload
+
+    func showUpload() {
+        uploadMessage = nil
+        uploadWindow.show(model: self)
+    }
+
+    func chooseFilesToUpload() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = Pipeline.audioExtensions.compactMap { UTType(filenameExtension: $0) }
+        guard let window = uploadWindow.host else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK else { return }
+            Task { @MainActor in self?.upload(panel.urls) }
+        }
+    }
+
+    func upload(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        uploadMessage = "Adding..."
+        Task {
+            let (added, problems) = await pipeline.addFiles(urls)
+            var parts: [String] = []
+            if !added.isEmpty {
+                let what = added.count == 1 ? "\(added[0].title)" : "\(added.count) files"
+                parts.append("Added \(what). Transcribing now; it will appear under Recent in the menu.")
+            }
+            parts += problems
+            uploadMessage = parts.joined(separator: "\n")
+            refresh()
         }
     }
 

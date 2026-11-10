@@ -44,7 +44,7 @@ To start Sotto when you log in, turn on **Open at Login** under the gear in its 
 
 **It offers when you join a meeting.** When an app holds your microphone for a few seconds, a small drop-down under the menu bar icon offers to start recording. Sotto checks which app is using the mic, so it works with Zoom, Teams, Meet, Webex, Slack, FaceTime, and any white-labeled meeting site or app, and it never looks at your browsing or network traffic. Turn it off with **Offer to Record Meetings** under the gear. Add apps that should never trigger it to `meetingPromptIgnore` in the settings file.
 
-**Import a recording.** Drop any audio file (m4a, mp3, wav, aac, caf, flac, aiff, mp4, mov) into `~/Documents/Sotto/Inbox`. Sotto picks it up within a few seconds and transcribes it. Voice memos, phone recordings and files from a hardware recorder all work.
+**Import a recording.** Click **Upload Audio File** in the menu, then drop files on the window or choose them (m4a, mp3, wav, aac, caf, flac, aiff, mp4, mov). Your original file is left where it was. Or drop files into `~/Documents/Sotto/Inbox`, and Sotto picks them up within a few seconds and moves them in. Voice memos, phone recordings and files from a hardware recorder all work.
 
 **Read and name speakers.** Click a recording to open its transcript. To put a name on a speaker, tell your AI app ("Speaker 2 is Dana"), or run:
 

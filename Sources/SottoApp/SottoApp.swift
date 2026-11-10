@@ -164,6 +164,22 @@ struct PanelView: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut("r", modifiers: [.command])
+            if !model.isRecording {
+                Button(action: model.showUpload) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.arrow.up")
+                        Text("Upload Audio File")
+                        Spacer()
+                    }
+                    .padding(.vertical, 5)
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.secondary.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
             if model.isRecording {
                 LevelRow(label: "Mic", level: model.micLevel)
                 if let s = model.systemLevel { LevelRow(label: "Computer", level: s) }
