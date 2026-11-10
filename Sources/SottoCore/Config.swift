@@ -17,6 +17,10 @@ public struct SottoConfig: Codable, Sendable {
     public var voiceMatchThreshold: Float
     /// Stop a recording after this many minutes with no words. 0 turns it off.
     public var autoStopMinutes: Int
+    /// Offer to record when a meeting app starts using the microphone.
+    public var meetingPrompt: Bool
+    /// More apps (bundle ID or the start of one) that should never trigger that offer.
+    public var meetingPromptIgnore: [String]
 
     public static let defaultNotice =
         "Quick heads up: I record my calls so I can take notes. The recording stays on my computer and is transcribed there. Let me know if you would rather I did not."
@@ -30,6 +34,8 @@ public struct SottoConfig: Codable, Sendable {
         asrModel = "v3"
         voiceMatchThreshold = 0.72
         autoStopMinutes = 10
+        meetingPrompt = true
+        meetingPromptIgnore = []
     }
 
     public init(from decoder: Decoder) throws {
@@ -43,6 +49,8 @@ public struct SottoConfig: Codable, Sendable {
         asrModel = try c.decodeIfPresent(String.self, forKey: .asrModel) ?? d.asrModel
         voiceMatchThreshold = try c.decodeIfPresent(Float.self, forKey: .voiceMatchThreshold) ?? d.voiceMatchThreshold
         autoStopMinutes = try c.decodeIfPresent(Int.self, forKey: .autoStopMinutes) ?? d.autoStopMinutes
+        meetingPrompt = try c.decodeIfPresent(Bool.self, forKey: .meetingPrompt) ?? d.meetingPrompt
+        meetingPromptIgnore = try c.decodeIfPresent([String].self, forKey: .meetingPromptIgnore) ?? d.meetingPromptIgnore
     }
 
     static func makeToken() -> String {

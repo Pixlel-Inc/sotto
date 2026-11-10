@@ -28,6 +28,7 @@ final class AppModel: ObservableObject {
     @Published var ownerName: String
     @Published var consentReminder: Bool
     @Published var openAtLogin: Bool = SMAppService.mainApp.status == .enabled
+    @Published var offerToRecordMeetings: Bool = true
 
     let library: Library
     let index: SearchIndex
@@ -44,6 +45,9 @@ final class AppModel: ObservableObject {
     private var quiet = QuietTimer(limit: 600)
     private var checkingForWords = false
     private var sleepObserver: NSObjectProtocol?
+    private var meetingTimer: Timer?
+    private var meetingWatch = MeetingWatch()
+    private let meetingPrompt = MeetingPrompt()
 
     init() {
         do {
@@ -60,6 +64,7 @@ final class AppModel: ObservableObject {
         api = SottoAPI(library: library, index: index)
         ownerName = library.config.ownerName
         consentReminder = library.config.consentReminder
+        offerToRecordMeetings = library.config.meetingPrompt
         index.sync()
         refresh()
         startServices()
@@ -100,10 +105,54 @@ final class AppModel: ObservableObject {
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in _ = await self?.stopRecording() }
         }
+        meetingTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkForMeeting() }
+        }
         inboxTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { _ = await self.pipeline.scanInbox() }
         }
+    }
+
+    /// Runs every few seconds and offers to record once a meeting app holds the mic.
+    private func checkForMeeting() {
+        guard offerToRecordMeetings else { return }
+        let ignore = library.config.meetingPromptIgnore
+        let app = MicUse.apps().first { MicUse.couldBeMeeting($0.bundleID, alsoIgnore: ignore) }
+        switch meetingWatch.update(inUse: app != nil) {
+        case .offer:
+            guard !isRecording else { return }
+            meetingPrompt.show(appName: app.flatMap(Self.displayName), showReminder: consentReminder) { [weak self] in
+                self?.recordFromPrompt()
+            }
+        case .micFreed:
+            meetingPrompt.hide()
+        case nil:
+            break
+        }
+    }
+
+    private static func displayName(_ app: MicUse.App) -> String? {
+        if app.bundleID.hasPrefix("com.apple.WebKit.") { return "Safari" }
+        if app.bundleID.hasPrefix("com.apple.avconferenced") { return "FaceTime" }
+        guard let name = NSRunningApplication(processIdentifier: app.pid)?.localizedName else { return nil }
+        if name == "zoom.us" { return "Zoom" }
+        return name.components(separatedBy: " Helper").first
+    }
+
+    private func recordFromPrompt() {
+        Task {
+            // The offer itself carries the consent reminder, so one click starts recording.
+            do { _ = try await startRecording(mode: .call, title: nil, askConsent: false) }
+            catch { warning = error.localizedDescription }
+        }
+    }
+
+    func setOfferToRecordMeetings(_ on: Bool) {
+        offerToRecordMeetings = on
+        library.config.meetingPrompt = on
+        try? library.config.save(library.paths)
+        if !on { meetingPrompt.hide() }
     }
 
     func refresh() {
@@ -166,6 +215,7 @@ final class AppModel: ObservableObject {
             try? FileManager.default.removeItem(at: library.folder(for: meta.id))
             throw error
         }
+        meetingPrompt.hide()
         currentId = meta.id
         mirror.id = meta.id
         startedAt = Date()

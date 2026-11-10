@@ -179,6 +179,38 @@ func w(_ text: String, _ start: Double, _ end: Double, _ speaker: String) -> Wor
         #expect(!early && !spoke && !stillCounting && done)
     }
 
+    @Test func meetingAppsCountButBackgroundListenersDoNot() {
+        for app in ["us.zoom.xos", "com.microsoft.teams2", "com.google.Chrome.helper", "com.apple.WebKit.GPU",
+                    "com.apple.avconferenced", "com.acme.whitelabel-meetings"] {
+            #expect(MicUse.couldBeMeeting(app), "\(app)")
+        }
+        for app in ["com.apple.CoreSpeech", "com.apple.assistantd", "com.pixlel.sotto", "com.anthropic.claudefordesktop.helper", ""] {
+            #expect(!MicUse.couldBeMeeting(app), "\(app)")
+        }
+        #expect(!MicUse.couldBeMeeting("com.spotify.client", alsoIgnore: ["com.spotify"]))
+    }
+
+    @Test func offersOncePerMeeting() {
+        let t0 = Date(timeIntervalSince1970: 0)
+        func at(_ s: Double) -> Date { t0.addingTimeInterval(s) }
+        var w = MeetingWatch()
+        var seen: [MeetingWatch.Event?] = []
+        seen.append(w.update(inUse: true, at: at(0)))     // mic opens
+        seen.append(w.update(inUse: false, at: at(2)))    // a quick voice note: no offer
+        seen.append(w.update(inUse: true, at: at(10)))
+        seen.append(w.update(inUse: true, at: at(13)))    // still under 5 s since it reopened
+        seen.append(w.update(inUse: true, at: at(16)))    // 6 s held: offer
+        seen.append(w.update(inUse: true, at: at(19)))    // no repeat
+        seen.append(w.update(inUse: false, at: at(25)))   // muted briefly: offer stays up
+        seen.append(w.update(inUse: true, at: at(40)))    // same meeting: no new offer
+        seen.append(w.update(inUse: true, at: at(49)))    // and none after holding again
+        seen.append(w.update(inUse: false, at: at(70)))   // meeting over: offer comes down
+        seen.append(w.update(inUse: false, at: at(200)))  // mic has rested
+        seen.append(w.update(inUse: true, at: at(300)))   // next meeting
+        seen.append(w.update(inUse: true, at: at(306)))
+        #expect(seen == [nil, nil, nil, nil, .offer, nil, nil, nil, nil, .micFreed, nil, nil, .offer])
+    }
+
     @Test func tokenComparison() {
         #expect(HTTPServer.constantTimeEqual("Bearer abc", "Bearer abc"))
         #expect(!HTTPServer.constantTimeEqual("Bearer abd", "Bearer abc"))

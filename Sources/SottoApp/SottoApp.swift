@@ -126,6 +126,8 @@ struct PanelView: View {
             Button("Your Name: \(model.ownerName.isEmpty ? "Me" : model.ownerName)...") { model.askOwnerName() }
             Toggle("Remind Me to Tell People", isOn: Binding(
                 get: { model.consentReminder }, set: { model.setConsentReminder($0) }))
+            Toggle("Offer to Record Meetings", isOn: Binding(
+                get: { model.offerToRecordMeetings }, set: { model.setOfferToRecordMeetings($0) }))
             Toggle("Open at Login", isOn: Binding(
                 get: { model.openAtLogin }, set: { model.setOpenAtLogin($0) }))
             Divider()
