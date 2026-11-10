@@ -122,6 +122,32 @@ func w(_ text: String, _ start: Double, _ end: Double, _ speaker: String) -> Wor
         #expect(!Transcriber.isInPerson(hasMic: false, computerWords: 0))
     }
 
+    @Test func unclaimedSentencesGoToTheVoiceTheyMatch() {
+        func w(_ text: String, _ start: Double, _ end: Double, _ speaker: String) -> Word {
+            Word(text: text, start: start, end: end, speaker: speaker)
+        }
+        let voices: [String: [Float]] = ["S1": [1, 0], "S2": [0, 1]]
+        let words = [w("Hey,", 0, 0.5, "S2"), w("there.", 0.5, 1.0, "S2"),
+                     w("Answer.", 2, 4, "S2"),
+                     w("Nice.", 4.2, 5.2, "S2"), w("It", 5.4, 5.6, "S2"), w("re", 5.6, 5.8, "S2")]
+        let sentences = Transcriber.sentenceRanges(words)
+        #expect(sentences == [0..<2, 2..<3, 3..<4, 4..<6])
+        let out = Transcriber.settleUnclaimed(words, sentences: sentences, unclaimed: [0..<2, 3..<4, 4..<6],
+                                              measured: [0..<2: [0.9, 0.1], 3..<4: [0.8, 0.0]], voices: voices)
+        #expect(out.map(\.speaker) == ["S1", "S1", "S2", "S1", "S1", "S1"])
+    }
+
+    @Test func unclearVoicesAreLeftAlone() {
+        #expect(Transcriber.closestVoice([1, 1], voices: ["S1": [1, 0], "S2": [0, 1]]) == nil)
+        #expect(Transcriber.closestVoice([-1, -1], voices: ["S1": [1, 0], "S2": [0.5, 1]]) == nil)
+        #expect(Transcriber.closestVoice([1, 0], voices: ["S1": [1, 0], "S2": [0, 1]]) == "S1")
+    }
+
+    @Test func coverageCountsOverlapOnce() {
+        #expect(Transcriber.coverage(start: 0, end: 2, turns: []) == 0)
+        #expect(Transcriber.coverage(start: 0, end: 2, turns: [(1, 3), (1, 3)]) == 0.5)
+    }
+
     @Test func tokenComparison() {
         #expect(HTTPServer.constantTimeEqual("Bearer abc", "Bearer abc"))
         #expect(!HTTPServer.constantTimeEqual("Bearer abd", "Bearer abc"))

@@ -102,10 +102,15 @@ public actor Transcriber {
                     map[seg.speakerId] = "S\(nextSpeaker)"
                     nextSpeaker += 1
                 }
+                var voices: [String: [Float]] = [:]
                 for (raw, label) in map {
-                    if let e = Transcriber.centroid(raw, result: result) { embeddings[label] = e }
+                    if let e = Transcriber.centroid(raw, result: result) {
+                        embeddings[label] = e
+                        voices[label] = e
+                    }
                 }
                 labelled = Transcriber.assign(words: words, segments: result.segments, map: map)
+                labelled = await checkUnclaimedSentences(labelled, samples: samples, segments: result.segments, voices: voices, log: log)
             }
             allWords.append(labelled.map { var w = $0; w.start += track.offset; w.end += track.offset; return w })
             roles.append(role)
@@ -141,6 +146,36 @@ public actor Transcriber {
         let d = OfflineDiarizerManager(config: config)
         try await d.prepareModels()
         return try await d.process(audio: samples)
+    }
+
+    /// The speaker model has no turn at all for some short lines ("Hey, how's it going?"),
+    /// so those words only got a guess from whoever spoke nearby. Compare each such sentence
+    /// directly with the voices found in this recording.
+    private func checkUnclaimedSentences(_ words: [Word], samples: [Float], segments: [TimedSpeakerSegment],
+                                         voices: [String: [Float]], log: (@Sendable (String) -> Void)?) async -> [Word] {
+        guard voices.count >= 2, let diarizer else { return words }
+        let turns = segments.map { (Double($0.startTimeSeconds), Double($0.endTimeSeconds)) }
+        let sentences = Transcriber.sentenceRanges(words)
+        let unclaimed = sentences.filter { r in
+            Transcriber.coverage(start: words[r.lowerBound].start, end: words[r.upperBound - 1].end, turns: turns) < 0.5
+        }
+        guard !unclaimed.isEmpty else { return words }
+        let audioEnd = Double(samples.count) / 16000
+        let measurable = unclaimed.filter { r in
+            let start = words[r.lowerBound].start, end = min(words[r.upperBound - 1].end, audioEnd)
+            return end - start >= Transcriber.shortestMeasurableSentence
+        }
+        var measured: [Range<Int>: [Float]] = [:]
+        if !measurable.isEmpty {
+            let spans = measurable.map { words[$0.lowerBound].start..<min(words[$0.upperBound - 1].end, audioEnd) }
+            do {
+                let vectors = try await diarizer.embedSpans(audioSource: ArrayAudioSampleSource(samples: samples), spans: spans)
+                for (r, v) in zip(measurable, vectors) { measured[r] = v }
+            } catch {
+                log?("Could not double-check short sentences: \(error.localizedDescription)")
+            }
+        }
+        return Transcriber.settleUnclaimed(words, sentences: sentences, unclaimed: Set(unclaimed), measured: measured, voices: voices)
     }
 
     private func recognize(_ samples: [Float]) async throws -> [WordTiming] {
@@ -212,25 +247,79 @@ public actor Transcriber {
     /// most of it.
     static func smoothBySentence(_ words: [Word], maxWords: Int = 25) -> [Word] {
         var out = words
-        var start = 0
-        func flush(_ end: Int) {
-            guard end > start else { return }
-            let range = start..<end
-            if range.count <= maxWords {
-                var time: [String: Double] = [:]
-                for i in range { time[out[i].speaker, default: 0] += max(0.05, out[i].end - out[i].start) }
-                if let winner = time.max(by: { $0.value < $1.value })?.key {
-                    for i in range { out[i].speaker = winner }
-                }
+        for range in sentenceRanges(words) where range.count <= maxWords {
+            var time: [String: Double] = [:]
+            for i in range { time[out[i].speaker, default: 0] += max(0.05, out[i].end - out[i].start) }
+            if let winner = time.max(by: { $0.value < $1.value })?.key {
+                for i in range { out[i].speaker = winner }
             }
-            start = end
         }
+        return out
+    }
+
+    /// Word ranges of each sentence: ends at . ? ! or at a pause of more than a second.
+    static func sentenceRanges(_ words: [Word]) -> [Range<Int>] {
+        var out: [Range<Int>] = []
+        var start = 0
         for (i, w) in words.enumerated() {
             let endsSentence = w.text.last.map { ".?!".contains($0) } ?? false
             let pauseAfter = i + 1 < words.count ? words[i + 1].start - w.end : 0
-            if endsSentence || pauseAfter > 1.0 { flush(i + 1) }
+            if endsSentence || pauseAfter > 1.0 {
+                out.append(start..<(i + 1))
+                start = i + 1
+            }
         }
-        flush(words.count)
+        if start < words.count { out.append(start..<words.count) }
+        return out
+    }
+
+    /// Fraction of a time span that falls inside the speaker model's turns.
+    static func coverage(start: Double, end: Double, turns: [(Double, Double)]) -> Double {
+        guard end > start else { return 0 }
+        var covered = 0.0
+        var reached = start
+        for (s, e) in turns.sorted(by: { $0.0 < $1.0 }) {
+            let from = max(s, reached), to = min(e, end)
+            if to > from { covered += to - from; reached = to }
+        }
+        return covered / (end - start)
+    }
+
+    static func cosine(_ a: [Float], _ b: [Float]) -> Float {
+        guard a.count == b.count, !a.isEmpty else { return 0 }
+        var dot: Float = 0, x: Float = 0, y: Float = 0
+        for i in a.indices { dot += a[i] * b[i]; x += a[i] * a[i]; y += b[i] * b[i] }
+        return x > 0 && y > 0 ? dot / (x.squareRoot() * y.squareRoot()) : 0
+    }
+
+    /// Below this length a voice measurement is mostly noise.
+    static let shortestMeasurableSentence = 0.6
+
+    /// The voice this sentence clearly sounds like, or nil if it is not clear.
+    static func closestVoice(_ vector: [Float], voices: [String: [Float]], minimumScore: Float = 0.3, minimumLead: Float = 0.2) -> String? {
+        let ranked = voices.map { (label: $0.key, score: cosine(vector, $0.value)) }.sorted { $0.score > $1.score }
+        guard let best = ranked.first, best.score >= minimumScore else { return nil }
+        if ranked.count > 1, best.score - ranked[1].score < minimumLead { return nil }
+        return best.label
+    }
+
+    /// Gives each unclaimed sentence the voice it clearly matches. A fragment too short to
+    /// tell ("It re" as the recording stops) stays with the sentence right before it.
+    static func settleUnclaimed(_ words: [Word], sentences: [Range<Int>], unclaimed: Set<Range<Int>>,
+                                measured: [Range<Int>: [Float]], voices: [String: [Float]]) -> [Word] {
+        var out = words
+        for (n, r) in sentences.enumerated() where unclaimed.contains(r) {
+            var label: String?
+            if let v = measured[r] { label = closestVoice(v, voices: voices) }
+            let length = out[r.upperBound - 1].end - out[r.lowerBound].start
+            if label == nil, length < 0.8, n > 0 {
+                let previous = sentences[n - 1]
+                if out[r.lowerBound].start - out[previous.upperBound - 1].end < 1.0 {
+                    label = out[previous.upperBound - 1].speaker
+                }
+            }
+            if let label { for i in r { out[i].speaker = label } }
+        }
         return out
     }
 
