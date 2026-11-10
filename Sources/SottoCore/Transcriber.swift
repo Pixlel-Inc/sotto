@@ -178,6 +178,13 @@ public actor Transcriber {
         return Transcriber.settleUnclaimed(words, sentences: sentences, unclaimed: Set(unclaimed), measured: measured, voices: voices)
     }
 
+    /// How many words are in a stretch of audio.
+    public func wordCount(_ samples: [Float]) async throws -> Int {
+        if Transcriber.isSilent(samples) { return 0 }
+        try await prepare()
+        return try await recognize(samples).count
+    }
+
     private func recognize(_ samples: [Float]) async throws -> [WordTiming] {
         guard let asr else { throw SottoError.invalid("speech model not loaded") }
         var state = TdtDecoderState.make(decoderLayers: version.decoderLayers)

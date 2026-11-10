@@ -38,6 +38,10 @@ To start Sotto when you log in, turn on **Open at Login** under the gear in its 
 - **If speech came through the computer, it was a call.** Your microphone is "you" and the computer audio is everyone else. Headphones give the cleanest result. Without them, Sotto removes the other side's voice that your microphone picks up from the speakers.
 - **If no speech came through the computer, it was in person.** The microphone is split by voice. Put the Mac where it can hear everyone.
 
+**It saves as it goes.** Audio is written to disk continuously. If the Mac shuts down or Sotto crashes mid-recording, the next time Sotto opens it recovers the recording and transcribes it. Putting the Mac to sleep ends the recording and saves it.
+
+**It stops by itself.** After 10 minutes with no words, on the microphone or the computer, Sotto stops and transcribes what it has. Change the time with `autoStopMinutes` in the settings file (0 turns it off).
+
 **Import a recording.** Drop any audio file (m4a, mp3, wav, aac, caf, flac, aiff, mp4, mov) into `~/Documents/Sotto/Inbox`. Sotto picks it up within a few seconds and transcribes it. Voice memos, phone recordings and files from a hardware recorder all work.
 
 **Read and name speakers.** Click a recording to open its transcript. To put a name on a speaker, tell your AI app ("Speaker 2 is Dana"), or run:
@@ -162,7 +166,7 @@ Requests whose `Host` header is not `localhost` or `127.0.0.1` are refused, whic
   index.sqlite                    search index (safe to delete)
 ```
 
-Set `SOTTO_HOME` to keep recordings somewhere else. Settings you can change in `config.json`: `ownerName`, `consentReminder`, `consentNotice`, `port`, `asrModel` (`v3` multilingual, the default; `v2` English only; `ultra`), and `voiceMatchThreshold`.
+Set `SOTTO_HOME` to keep recordings somewhere else. Settings you can change in `config.json`: `ownerName`, `consentReminder`, `consentNotice`, `port`, `asrModel` (`v3` multilingual, the default; `v2` English only; `ultra`), `voiceMatchThreshold`, and `autoStopMinutes`.
 
 To delete a recording, delete its folder.
 
@@ -181,6 +185,7 @@ Speech and speaker models run through [FluidAudio](https://github.com/FluidInfer
 - Apple Silicon only, because the models are built for the Neural Engine.
 - Transcription runs after a recording ends, not live.
 - If the computer is playing speech (a video, say) during an in-person conversation, Sotto reads it as a call and labels everyone in the room as you.
+- If a recording is cut short by a crash or power loss, the last few seconds may be missing.
 - If your output device changes during a call (AirPods connecting, say), computer audio may stop being captured for the rest of that recording.
 - Speaker splitting is good, not perfect. Similar voices can merge and one voice can occasionally split in two. `--speakers N` and renaming help.
 - No summaries yet. Ask your AI app; that is what the connector is for.

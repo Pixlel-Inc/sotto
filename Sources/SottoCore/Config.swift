@@ -15,6 +15,8 @@ public struct SottoConfig: Codable, Sendable {
     public var asrModel: String
     /// Cosine similarity needed to put a remembered name on a new speaker.
     public var voiceMatchThreshold: Float
+    /// Stop a recording after this many minutes with no words. 0 turns it off.
+    public var autoStopMinutes: Int
 
     public static let defaultNotice =
         "Quick heads up: I record my calls so I can take notes. The recording stays on my computer and is transcribed there. Let me know if you would rather I did not."
@@ -27,6 +29,7 @@ public struct SottoConfig: Codable, Sendable {
         consentNotice = SottoConfig.defaultNotice
         asrModel = "v3"
         voiceMatchThreshold = 0.72
+        autoStopMinutes = 10
     }
 
     public init(from decoder: Decoder) throws {
@@ -39,6 +42,7 @@ public struct SottoConfig: Codable, Sendable {
         consentNotice = try c.decodeIfPresent(String.self, forKey: .consentNotice) ?? d.consentNotice
         asrModel = try c.decodeIfPresent(String.self, forKey: .asrModel) ?? d.asrModel
         voiceMatchThreshold = try c.decodeIfPresent(Float.self, forKey: .voiceMatchThreshold) ?? d.voiceMatchThreshold
+        autoStopMinutes = try c.decodeIfPresent(Int.self, forKey: .autoStopMinutes) ?? d.autoStopMinutes
     }
 
     static func makeToken() -> String {

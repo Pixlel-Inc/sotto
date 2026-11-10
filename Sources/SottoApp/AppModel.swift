@@ -40,6 +40,10 @@ final class AppModel: ObservableObject {
     private var startedAt: Date?
     private var ticker: Timer?
     private var inboxTimer: Timer?
+    private var quietWatch: Timer?
+    private var quiet = QuietTimer(limit: 600)
+    private var checkingForWords = false
+    private var sleepObserver: NSObjectProtocol?
 
     init() {
         do {
@@ -85,7 +89,16 @@ final class AppModel: ObservableObject {
             await pipeline.setHandlers(
                 onChange: { [weak self] _, _ in Task { @MainActor in self?.refresh() } },
                 log: { [weak self] line in Task { @MainActor in self?.status = line } })
+            await pipeline.recoverInterrupted()
             await pipeline.resumeUnfinished()
+            // A recording that died moments before launch looks active at first. Look again.
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            await pipeline.recoverInterrupted(excluding: mirror.id)
+        }
+        // Closing the lid ends the recording cleanly instead of leaving a gap in it.
+        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in _ = await self?.stopRecording() }
         }
         inboxTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -162,8 +175,28 @@ final class AppModel: ObservableObject {
         ticker = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
+        startQuietWatch()
         refresh()
         return meta.id
+    }
+
+    private func startQuietWatch() {
+        let minutes = library.config.autoStopMinutes
+        guard minutes > 0 else { return }
+        quiet = QuietTimer(limit: TimeInterval(minutes) * 60)
+        quietWatch = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.checkForWords() }
+        }
+    }
+
+    private func checkForWords() async {
+        guard isRecording, let id = currentId, !checkingForWords else { return }
+        checkingForWords = true
+        defer { checkingForWords = false }
+        let heard = await pipeline.heardWords(in: recorder.recentAudio(seconds: 65))
+        guard isRecording, currentId == id, quiet.update(heardWords: heard) else { return }
+        _ = await stopRecording()
+        warning = "Recording stopped by itself: nobody spoke for \(library.config.autoStopMinutes) minutes."
     }
 
     private func tick() {
@@ -180,6 +213,8 @@ final class AppModel: ObservableObject {
         guard isRecording, let id = currentId else { return nil }
         ticker?.invalidate()
         ticker = nil
+        quietWatch?.invalidate()
+        quietWatch = nil
         let result = recorder.stop()
         isRecording = false
         currentId = nil

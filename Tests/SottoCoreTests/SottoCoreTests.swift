@@ -148,6 +148,37 @@ func w(_ text: String, _ start: Double, _ end: Double, _ speaker: String) -> Wor
         #expect(Transcriber.coverage(start: 0, end: 2, turns: [(1, 3), (1, 3)]) == 0.5)
     }
 
+    @Test func aRecordingThatNeverStoppedIsRecovered() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tone = (0..<32000).map { Float(sin(Double($0) * 0.1) * 0.3) }
+        for name in ["mic", "system"] {
+            let writer = try TrackWriter(url: folder.appendingPathComponent("\(name).m4a"), label: name, startHost: 0)
+            writer.append(tone, sampleRate: 16000, hostTime: mach_absolute_time())
+            _ = writer.currentLevel() // waits for the write; finish() is deliberately never called
+            #expect(TrackWriter.readTail(of: writer.liveURL, seconds: 1).count == 16000)
+        }
+        #expect(try Recorder.recover(folder: folder) == nil) // files just changed: maybe still recording
+        let found = try #require(try Recorder.recover(folder: folder, minimumAge: 0))
+        #expect(found.tracks.map(\.role) == [.me, .others])
+        #expect(found.tracks.map(\.file) == ["mic.m4a", "system.m4a"])
+        let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        #expect(!names.contains { $0.hasSuffix(".pcm") })
+        let seconds = Pipeline.duration(of: folder.appendingPathComponent("mic.m4a"))
+        #expect(abs(seconds - 2) < 0.2)
+    }
+
+    @Test func stopsOnlyAfterTheWholeQuietPeriod() {
+        let start = Date(timeIntervalSince1970: 0)
+        var timer = QuietTimer(limit: 600, start: start)
+        let early = timer.update(heardWords: false, at: start.addingTimeInterval(540))
+        let spoke = timer.update(heardWords: true, at: start.addingTimeInterval(590))
+        let stillCounting = timer.update(heardWords: false, at: start.addingTimeInterval(1100))
+        let done = timer.update(heardWords: false, at: start.addingTimeInterval(1190))
+        #expect(!early && !spoke && !stillCounting && done)
+    }
+
     @Test func tokenComparison() {
         #expect(HTTPServer.constantTimeEqual("Bearer abc", "Bearer abc"))
         #expect(!HTTPServer.constantTimeEqual("Bearer abd", "Bearer abc"))

@@ -135,6 +135,38 @@ public actor Pipeline {
         return ids
     }
 
+    /// Whether anyone said anything in these tracks. If a track cannot be checked the answer
+    /// is yes, so a problem here can never end a recording early. Two words, because noise
+    /// can come out as one stray word.
+    public func heardWords(in tracks: [[Float]]) async -> Bool {
+        for samples in tracks where !samples.isEmpty {
+            guard let count = try? await transcriber.wordCount(samples) else { return true }
+            if count >= 2 { return true }
+        }
+        return false
+    }
+
+    /// Saves recordings that never reached Stop because the app quit or the Mac went down.
+    public func recoverInterrupted(excluding active: String? = nil) {
+        for meta in library.allMetas() where meta.status == .recording && meta.id != active {
+            do {
+                guard let found = try Recorder.recover(folder: library.folder(for: meta.id)) else { continue }
+                if found.tracks.isEmpty {
+                    _ = try library.updateMeta(meta.id) { $0.status = .failed; $0.error = "Sotto closed before any audio was saved." }
+                    try? index.reindex(meta.id)
+                    onChange?(meta.id, .failed)
+                } else {
+                    _ = try library.updateMeta(meta.id) { $0.tracks = found.tracks; $0.duration = found.duration; $0.status = .queued }
+                    log?("Recovered \(meta.title)")
+                    enqueue(meta.id)
+                }
+            } catch {
+                _ = try? library.updateMeta(meta.id) { $0.status = .failed; $0.error = "Could not recover: \(error.localizedDescription)" }
+                onChange?(meta.id, .failed)
+            }
+        }
+    }
+
     /// Recordings left queued or half-done (the app quit mid-job) go back on the queue.
     public func resumeUnfinished() {
         for meta in library.allMetas() where meta.status == .queued || meta.status == .transcribing {
