@@ -27,7 +27,7 @@ scripts/build-app.sh --install
 open ~/Applications/Sotto.app
 ```
 
-The waveform icon appears in your menu bar. The first recording asks for microphone access, and the first call recording asks for permission to record computer audio ("System Audio Recording Only"). The first transcription downloads the speech and speaker models (about 500 MB, once).
+The waveform icon appears in your menu bar, near the clock. Opening Sotto again from Spotlight or Finder shows the same controls in a window. The first recording asks for microphone access, and the first call recording asks for permission to record computer audio ("System Audio Recording Only"). The first transcription downloads the speech and speaker models (about 500 MB, once).
 
 To start Sotto when you log in, turn on **Open at login** in its menu.
 

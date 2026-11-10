@@ -6,6 +6,17 @@ import SwiftUI
 struct SottoMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
+    init() {
+        // New menu bar items start at the far left of the icons, which on a MacBook with
+        // a busy menu bar is underneath the notch, where macOS draws nothing. Start near
+        // the clock instead. Cmd-dragging the icon overwrites this value, so it is only a
+        // starting point. The number is the distance in points from the right screen edge.
+        let key = "NSStatusItem Preferred Position Item-0"
+        if UserDefaults.standard.object(forKey: key) == nil {
+            UserDefaults.standard.set(300.0, forKey: key)
+        }
+    }
+
     var body: some Scene {
         MenuBarExtra {
             PanelView(model: delegate.model)
