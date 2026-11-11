@@ -71,6 +71,16 @@ final class AppModel: ObservableObject {
         index.sync()
         refresh()
         startServices()
+        openAtLoginFirstTime()
+    }
+
+    /// Sotto lives in the menu bar, so it should come back after a restart. Turn Open at
+    /// Login on once, the first time Sotto runs; if the user turns it off later, it stays off.
+    private func openAtLoginFirstTime() {
+        let key = "openAtLoginDefaultApplied"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        if SMAppService.mainApp.status != .enabled { setOpenAtLogin(true) }
     }
 
     private func startServices() {
