@@ -62,19 +62,25 @@ public actor Transcriber {
         var embeddings: [String: [Float]] = [:]
         var nextSpeaker = 1
 
+        // Recordings made before the sample rate fix have a computer track that runs fast
+        // (44.1 kHz audio saved as if it were 48 kHz). Put it back on the mic's clock.
+        let stretch = Transcriber.clockStretch(meta: meta, folder: folder)
+        if let stretch { log?("Computer audio ran on the wrong clock, correcting it by \(String(format: "%.4f", stretch))") }
+
         // Hear every track first: what came through the computer decides how the mic is read.
-        var heard: [(track: Track, url: URL, words: [WordTiming])] = []
+        var heard: [(track: Track, url: URL, words: [WordTiming], stretch: Double?)] = []
         for track in meta.tracks {
             let url = folder.appendingPathComponent(track.file)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             log?("Reading \(track.file)...")
-            let samples = try AudioConverter().resampleAudioFile(url)
+            let trackStretch = track.role == .others ? stretch : nil
+            let samples = try Transcriber.load(url, stretch: trackStretch)
             if Transcriber.isSilent(samples) {
                 log?("\(track.file) is silent, skipping")
                 continue
             }
             log?("Transcribing \(track.file) (\(Render.duration(Double(samples.count) / 16000)))...")
-            heard.append((track, url, try await recognize(samples)))
+            heard.append((track, url, try await recognize(samples), trackStretch))
         }
 
         let computerWords = heard.filter { $0.track.role == .others }.reduce(0) { $0 + $1.words.count }
@@ -84,7 +90,7 @@ public actor Transcriber {
             heard.removeAll { $0.track.role == .others }
         }
 
-        for (track, url, words) in heard {
+        for (track, url, words, trackStretch) in heard {
             let role: TrackRole = inPerson && track.role == .me ? .room : track.role
             var labelled: [Word]
             if role == .me {
@@ -93,7 +99,7 @@ public actor Transcriber {
                 log?("Finding speakers in \(track.file)...")
                 var hint = meta.expectedSpeakers
                 if let n = hint, role == .others { hint = max(1, n - 1) }
-                let samples = try AudioConverter().resampleAudioFile(url)
+                let samples = try Transcriber.load(url, stretch: trackStretch)
                 let result = try await diarize(samples, speakers: hint)
                 // Number speakers across the whole recording in order of first appearance.
                 var map: [String: String] = [:]
@@ -111,6 +117,8 @@ public actor Transcriber {
                 }
                 labelled = Transcriber.assign(words: words, segments: result.segments, map: map)
                 labelled = await checkUnclaimedSentences(labelled, samples: samples, segments: result.segments, voices: voices, log: log)
+                // The diarizer sometimes splits one person in two, usually their short replies.
+                labelled = Transcriber.mergeSameVoices(labelled, embeddings: &embeddings, threshold: threshold)
             }
             allWords.append(labelled.map { var w = $0; w.start += track.offset; w.end += track.offset; return w })
             roles.append(role)
@@ -122,8 +130,9 @@ public actor Transcriber {
             allWords[meIndex] = Transcriber.removeEcho(mic: allWords[meIndex], others: allWords[othersIndex])
         }
 
-        let merged = allWords.flatMap { $0 }.sorted { $0.start < $1.start }
-        var segments = Transcriber.group(merged)
+        // Make turns within each track, then put the turns in order. Merging word by word
+        // chops both people into one-word lines whenever they talk over each other.
+        var segments = Transcriber.interleave(allWords)
         segments = Transcriber.renumber(segments, embeddings: &embeddings)
 
         // Put remembered names on voices we have heard before.
@@ -330,6 +339,81 @@ public actor Transcriber {
         return out
     }
 
+    /// Joins speakers whose voices are as alike as a remembered voice would need to be to
+    /// count as the same person. The one with fewer words takes the other's label.
+    static func mergeSameVoices(_ words: [Word], embeddings: inout [String: [Float]], threshold: Float) -> [Word] {
+        var counts: [String: Int] = [:]
+        for w in words { counts[w.speaker, default: 0] += 1 }
+        var labels = counts.keys.filter { embeddings[$0] != nil }.sorted { counts[$0]! > counts[$1]! }
+        var into: [String: String] = [:]
+        var i = 0
+        while i < labels.count {
+            let big = labels[i]
+            var j = i + 1
+            while j < labels.count {
+                let small = labels[j]
+                if cosine(embeddings[big]!, embeddings[small]!) >= threshold {
+                    into[small] = big
+                    embeddings[small] = nil
+                    labels.remove(at: j)
+                } else { j += 1 }
+            }
+            i += 1
+        }
+        guard !into.isEmpty else { return words }
+        return words.map { var w = $0; if let to = into[w.speaker] { w.speaker = to }; return w }
+    }
+
+    /// 16 kHz mono samples of a track, stretched in time when its clock was wrong.
+    static func load(_ url: URL, stretch: Double?) throws -> [Float] {
+        let samples = try AudioConverter().resampleAudioFile(url)
+        guard let stretch else { return samples }
+        return Transcriber.stretched(samples, by: stretch)
+    }
+
+    /// Lengthens (or shortens) audio by a factor, by linear interpolation.
+    static func stretched(_ samples: [Float], by factor: Double) -> [Float] {
+        guard factor > 0, samples.count > 1 else { return samples }
+        let count = Int((Double(samples.count) * factor).rounded())
+        var out = [Float](repeating: 0, count: count)
+        let last = samples.count - 1
+        for i in 0..<count {
+            let x = Double(i) / factor
+            let j = min(Int(x), last)
+            let f = Float(x - Double(j))
+            out[i] = j < last ? samples[j] + (samples[j + 1] - samples[j]) * f : samples[last]
+        }
+        return out
+    }
+
+    /// When the computer track's length is off from the mic's by exactly the ratio of two
+    /// standard sample rates, it was saved at the wrong rate. Returns the factor that
+    /// lengthens it back to real time, or nil when the two tracks already agree.
+    static func clockStretch(meta: RecordingMeta, folder: URL) -> Double? {
+        guard let mic = meta.tracks.first(where: { $0.role == .me }),
+              let others = meta.tracks.first(where: { $0.role == .others }),
+              let micSeconds = seconds(of: folder.appendingPathComponent(mic.file)),
+              let otherSeconds = seconds(of: folder.appendingPathComponent(others.file))
+        else { return nil }
+        return clockStretch(micSeconds: micSeconds + mic.offset, otherSeconds: otherSeconds + others.offset)
+    }
+
+    static func clockStretch(micSeconds: Double, otherSeconds: Double) -> Double? {
+        guard micSeconds > 20, otherSeconds > 0 else { return nil }
+        let ratio = otherSeconds / micSeconds
+        guard abs(ratio - 1) > 0.02 else { return nil }
+        let rates = RateClock.standardRates
+        for a in rates { for b in rates where a != b {
+            if abs(ratio / (a / b) - 1) < 0.003 { return b / a }
+        } }
+        return nil
+    }
+
+    static func seconds(of url: URL) -> Double? {
+        guard let file = try? AVAudioFile(forReading: url), file.processingFormat.sampleRate > 0 else { return nil }
+        return Double(file.length) / file.processingFormat.sampleRate
+    }
+
     static func normalize(_ s: String) -> String {
         s.lowercased().filter { $0.isLetter || $0.isNumber }
     }
@@ -353,12 +437,41 @@ public actor Transcriber {
         }
     }
 
+    static func interleave(_ tracks: [[Word]]) -> [Segment] {
+        tracks.enumerated().flatMap { index, words -> [Segment] in
+            // Where someone on another track started talking, a pause here starts a new turn.
+            let others = tracks.enumerated().filter { $0.offset != index }.flatMap { $0.element.map(\.start) }.sorted()
+            return group(words.sorted { $0.start < $1.start }, breaks: others)
+        }
+            .enumerated()
+            .sorted { ($0.element.start, $0.offset) < ($1.element.start, $1.offset) }
+            .map(\.element)
+            .reduce(into: [Segment]()) { out, s in
+                // A turn split for someone who ends up elsewhere in the order joins back up.
+                if var last = out.last, last.speaker == s.speaker, s.start - last.end < 2.0, s.end - last.start < 60 {
+                    last.text += " " + s.text
+                    last.end = max(last.end, s.end)
+                    out[out.count - 1] = last
+                } else {
+                    out.append(s)
+                }
+            }
+    }
+
     /// Joins words into turns: a new turn when the speaker changes, after a long
     /// pause, or when a long turn reaches the end of a sentence.
-    static func group(_ words: [Word], pause: Double = 2.0, maxTurn: Double = 45) -> [Segment] {
+    static func group(_ words: [Word], pause: Double = 2.0, maxTurn: Double = 45, breaks: [Double] = [],
+                      breakPause: Double = 0.7) -> [Segment] {
         var out: [Segment] = []
+        func someoneElseSpoke(after a: Double, before b: Double) -> Bool {
+            guard b - a >= breakPause, !breaks.isEmpty else { return false }
+            var lo = 0, hi = breaks.count
+            while lo < hi { let mid = (lo + hi) / 2; if breaks[mid] <= a { lo = mid + 1 } else { hi = mid } }
+            return lo < breaks.count && breaks[lo] < b
+        }
         for w in words {
             if var last = out.last, last.speaker == w.speaker, w.start - last.end < pause,
+               !someoneElseSpoke(after: last.end, before: w.start),
                !(w.start - last.start > maxTurn && last.text.last.map { ".?!".contains($0) } == true) {
                 last.text += " " + w.text
                 last.end = max(last.end, w.end)

@@ -282,7 +282,11 @@ final class SystemCapture {
         ]
         try SystemCapture.check(AudioHardwareCreateAggregateDevice(aggregate as CFDictionary, &aggregateID), "creating the capture device")
 
-        let rate = asbd.mSampleRate
+        // The tap reports its own format (often 48 kHz), but the audio arrives at the rate the
+        // capture device runs at, which follows the output device (44.1 kHz on MacBook
+        // speakers). Trusting the tap squeezed every second of computer audio into 0.92 s.
+        let deviceRate = SystemCapture.nominalRate(of: aggregateID)
+        let clock = RateClock(assumed: deviceRate ?? asbd.mSampleRate)
         let channels = Int(asbd.mChannelsPerFrame)
         let interleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0
         let bytesPerFrame = Int(asbd.mBytesPerFrame)
@@ -293,9 +297,20 @@ final class SystemCapture {
             if interleaved { frames = bytesPerFrame > 0 ? Int(list[0].mDataByteSize) / bytesPerFrame : 0 }
             else { frames = Int(list[0].mDataByteSize) / MemoryLayout<Float>.size }
             let mono = downmix(inInput, frames: frames, channels: channels, interleaved: interleaved)
+            let rate = clock.observe(frames: frames, hostTime: inTime.pointee.mHostTime)
             writer.append(mono, sampleRate: rate, hostTime: inTime.pointee.mHostTime)
         }, "attaching to the capture device")
         try SystemCapture.check(AudioDeviceStart(aggregateID, procID), "starting system audio capture")
+    }
+
+    private static func nominalRate(of device: AudioObjectID) -> Double? {
+        var rate: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyNominalSampleRate,
+                                              mScope: kAudioObjectPropertyScopeGlobal,
+                                              mElement: kAudioObjectPropertyElementMain)
+        let status = AudioObjectGetPropertyData(device, &addr, 0, nil, &size, &rate)
+        return status == noErr && rate > 0 ? rate : nil
     }
 
     func stop() {
@@ -310,6 +325,54 @@ final class SystemCapture {
             tapID = AudioObjectID(kAudioObjectUnknown)
         }
         procID = nil
+    }
+}
+
+/// Checks the sample rate against the clock. Audio devices change rate when the output
+/// changes (AirPods, a monitor, a dock), and a wrong rate stretches or squeezes the track
+/// so it drifts away from the mic. Every few seconds this counts the frames that arrived,
+/// and if they point to a different standard rate it switches to that one.
+final class RateClock: @unchecked Sendable {
+    static let standardRates: [Double] = [8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000]
+    private(set) var rate: Double
+    private var windowStart: UInt64?
+    private var windowFrames = 0
+    private let window: Double
+    private let ticksPerSecond: Double
+
+    init(assumed: Double, window: Double = 4) {
+        rate = assumed
+        self.window = window
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        ticksPerSecond = 1e9 * Double(info.denom) / Double(info.numer)
+    }
+
+    /// Call once per audio buffer, before the buffer is used. Returns the rate to use for it.
+    func observe(frames: Int, hostTime: UInt64) -> Double {
+        guard hostTime > 0 else { return rate }
+        guard let start = windowStart, hostTime > start else {
+            windowStart = hostTime
+            windowFrames = frames
+            return rate
+        }
+        let seconds = Double(hostTime - start) / ticksPerSecond
+        if seconds >= window {
+            if let measured = RateClock.snap(Double(windowFrames) / seconds), abs(measured / rate - 1) > 0.015 {
+                rate = measured
+            }
+            windowStart = hostTime
+            windowFrames = 0
+        }
+        windowFrames += frames
+        return rate
+    }
+
+    /// The standard rate within 3% of a measured one, if there is one.
+    static func snap(_ measured: Double) -> Double? {
+        guard measured > 0 else { return nil }
+        let best = standardRates.min { abs($0 / measured - 1) < abs($1 / measured - 1) }!
+        return abs(best / measured - 1) < 0.03 ? best : nil
     }
 }
 

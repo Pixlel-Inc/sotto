@@ -216,4 +216,58 @@ func w(_ text: String, _ start: Double, _ end: Double, _ speaker: String) -> Wor
         #expect(!HTTPServer.constantTimeEqual("Bearer abd", "Bearer abc"))
         #expect(!HTTPServer.constantTimeEqual("", "Bearer abc"))
     }
+
+    @Test func computerTrackOnTheWrongClockIsCorrected() {
+        // 44.1 kHz audio saved as 48 kHz: the Nov 12 recording, 4621 s of mic, 4246 s of computer.
+        let fix = Transcriber.clockStretch(micSeconds: 4621.4, otherSeconds: 4246.0)
+        #expect(fix.map { abs($0 - 48000.0 / 44100.0) < 1e-9 } == true)
+        #expect(Transcriber.clockStretch(micSeconds: 4621.4, otherSeconds: 4620.0) == nil)  // already right
+        #expect(Transcriber.clockStretch(micSeconds: 4621.4, otherSeconds: 3000.0) == nil)  // computer stopped early
+        #expect(Transcriber.clockStretch(micSeconds: 7.2, otherSeconds: 5.5) == nil)        // too short to judge
+        let longer = Transcriber.stretched([0, 1, 2, 3], by: 2)
+        #expect(longer.count == 8)
+        #expect(longer[1] == 0.5)
+    }
+
+    @Test func rateClockFollowsTheRealRate() {
+        #expect(RateClock.snap(44_093) == 44100)
+        #expect(RateClock.snap(47_990) == 48000)
+        #expect(RateClock.snap(40_000) == nil)
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        let ticks = { (s: Double) in UInt64(s * 1e9 * Double(info.denom) / Double(info.numer)) }
+        let clock = RateClock(assumed: 48000)
+        var t = 0.0
+        var used: Double = 0
+        while t < 10 {
+            used = clock.observe(frames: 441, hostTime: ticks(100 + t))  // 441 frames every 10 ms is 44.1 kHz
+            t += 0.01
+        }
+        #expect(used == 44100)
+    }
+
+    @Test func oneVoiceSplitInTwoIsJoined() {
+        let words = [Word(text: "hello", start: 0, end: 1, speaker: "S1"),
+                     Word(text: "there", start: 1, end: 2, speaker: "S1"),
+                     Word(text: "yeah", start: 3, end: 4, speaker: "S2"),
+                     Word(text: "no", start: 5, end: 6, speaker: "S3")]
+        var e: [String: [Float]] = ["S1": [1, 0.1, 0], "S2": [1, 0.3, 0], "S3": [0, 0, 1]]
+        let out = Transcriber.mergeSameVoices(words, embeddings: &e, threshold: 0.72)
+        #expect(out.map(\.speaker) == ["S1", "S1", "S1", "S3"])
+        #expect(Set(e.keys) == ["S1", "S3"])
+    }
+
+    @Test func talkingOverEachOtherKeepsWholeLines() {
+        // Both talking at once, words 0.5 s apart with no real pause: two whole lines.
+        let me = ["was", "your", "brother", "there"].enumerated().map {
+            Word(text: $0.element, start: Double($0.offset) * 0.5, end: Double($0.offset) * 0.5 + 0.45, speaker: "me") }
+        let them = ["yeah", "that", "was", "Mark"].enumerated().map {
+            Word(text: $0.element, start: Double($0.offset) * 0.5 + 0.2, end: Double($0.offset) * 0.5 + 0.65, speaker: "S1") }
+        #expect(Transcriber.interleave([me, them]).map(\.text) == ["was your brother there", "yeah that was Mark"])
+        // They pause for a second while I answer: their line splits around mine.
+        let them2 = [Word(text: "is", start: 0, end: 0.4, speaker: "S1"), Word(text: "it?", start: 0.5, end: 0.9, speaker: "S1"),
+                     Word(text: "great", start: 2.5, end: 3, speaker: "S1")]
+        let me2 = [Word(text: "yes", start: 1.2, end: 1.6, speaker: "me")]
+        #expect(Transcriber.interleave([me2, them2]).map(\.text) == ["is it?", "yes", "great"])
+    }
 }
